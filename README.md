@@ -108,6 +108,7 @@ Options:
 ```
 
 To publish to MQTT, you'll need the `Net::MQTT::Simple` Perl module installed.  
-If its not available as a native package for your distro, it can be installed from CPAN e.g. `perl -MCPAN -e 'install Net::MQTT::Simple'`
+If its not available as a native package for your distro, it can be installed from CPAN e.g.  
+`perl -MCPAN -e 'install Net::MQTT::Simple'`
 
 
