@@ -3,6 +3,8 @@ use strict;
 use warnings;
 use Getopt::Long;
 
+# uses Net::MQTT::Simple if MQTT is enabled
+
 $ENV{'PATH'} = "/usr/bin:/usr/sbin";
 my $DEBUG = $ENV{'DEBUG'};
 
@@ -10,7 +12,7 @@ my $DEBUG = $ENV{'DEBUG'};
 my $BT = "00:00:00:00:00:00";
 
 # Friendly name for this device
-# (used for the MQTT topic)
+# (used in the MQTT topic)
 my $BT_friendly = "KG140F";
 
 # set to 0 to disable MQTT completely
@@ -28,20 +30,23 @@ my $mqtt_username = "";
 my $mqtt_passwd   = "";
 
 # set to 1 to skip over all the values for the
-# battery protection settings
+# battery protection settings.
+# These are device configuration settings, not measurements
 my $skip_protection_stats = 1;
 
 my $help = 0;
 my $quiet;
 
 GetOptions(
-    'help|?'   => \$help,
-    'quiet'    => \$quiet,
-    'device=s' => \$BT,
-    'mqtt'     => \$mqtt_enabled,
-    'server=s' => \$mqtt_server,
-    'name=s'   => \$BT_friendly,
-    'retain'   => \$mqtt_retain
+    'help|?'     => \$help,
+    'quiet'      => \$quiet,
+    'device=s'   => \$BT,
+    'mqtt'       => \$mqtt_enabled,
+    'server=s'   => \$mqtt_server,
+    'username=s' => \$mqtt_username,
+    'password=s' => \$mqtt_passwd,
+    'name=s'     => \$BT_friendly,
+    'retain'     => \$mqtt_retain
 );
 
 &help if $help;
@@ -53,8 +58,10 @@ sub help {
     print "\t-q, --quiet\t\t\tDon't print output\n";
     print "\t-m, --mqtt\t\t\tEnable (1) or disable (0) publishing to MQTT\n";
     print "\t-s, --server\t\t\tHostname of MQTT server\n";
+    print "\t-u  --username\t\t\tMQTT username\n";
+    print "\t-p  --password\t\t\tMQTT password\n";
     print
-"\t-n, --name\t\t\t'Friendly' name of Junctek device, MQTT topic becomes junctek/[name]/... \n";
+"\t-n, --name\t\t\t'Friendly' name of device, MQTT topic becomes junctek/[name]/... \n";
     print "\t-r, --retain\t\t\tPublish MQTT messages with retain flag\n";
     print "\t-h, --help\t\t\t<-- You are here\n";
     print "\n\n";
@@ -67,17 +74,22 @@ my $mqtt;
 if ($mqtt_enabled) {
     use Net::MQTT::Simple;
     $mqtt = Net::MQTT::Simple->new($mqtt_server);
+    if ($mqtt_username) {
+        $ENV{'MQTT_SIMPLE_ALLOW_INSECURE_LOGIN'} = 1;
+        $mqtt->login( $mqtt_username, $mqtt_passwd )
+          or warn "MQTT login failed\n";
+    }
 }
 
 my $val;
 my %stats;
 my $i = 0;
 
-# how many packets to listen for, 40 seems to be one complete set
+# how many packets to listen for, 40 appears to be one complete parameter set
 my $max_pkts = 40;
 
 # These are all the data types I've been able to identify,
-# there's a bucnh more still but I'm mainly interested in V/A/SoC/state
+# there's a bunch more still but I'm mainly interested in V/A/SoC/state
 my %key = (
     "b0", "Battery capacity",
     "b1", "Over-temp protection",
@@ -129,16 +141,17 @@ while (<$gatt>) {
         my @d    = split /\s/, $data;
         foreach my $v (@d) {
             next if ( $v eq 'ee' );    # end of record byte
+
             if ( $v eq 'bb' ) {
 
-                # start of record byte, flush buffer
+                # found a start of record byte, flush the buffer
                 $val = '';
                 next;
             }
             if ( $v =~ m/^\d+$/ ) {
                 $val .= $v;
             }
-            else {
+            else {                     # Parameter ID byte, calculate the value
                 if    ( $v eq 'c0' ) { $val = $val / 100; }
                 elsif ( $v eq 'c1' ) {
                     $val = $val / 100;
@@ -201,8 +214,9 @@ while (<$gatt>) {
                       ( $stats{ $key{'d2'} } / $stats{ $key{'b0'} } ) * 100;
                     $stats{'SoC'} = $SoC;
                 }
-
+                no warnings;    # expect lots of empty vars in debug output
                 $DEBUG && print $key{$v} . " [$v]" . ": " . $val . "\n";
+                use warnings;
 
                 if ( $key{$v} ) {
                     $stats{ $key{$v} } = $val;
@@ -242,6 +256,7 @@ while (<$gatt>) {
     }
 }
 
+# Convert seconds into hours:minutes:seconds
 sub formatSeconds {
     my ($args) = @_;
     my $secs = $args->{seconds};
