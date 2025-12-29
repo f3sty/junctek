@@ -138,7 +138,13 @@ while (<$gatt>) {
     chomp;
     if ( $_ =~ m/value: (.*)$/ ) {
         my $data = $1;
-        my @d    = split /\s/, $data;
+        unless ( crc_check($data) ) {
+
+            # checkum failure
+            $DEBUG && print "(c/s failure)\n";
+            next;
+        }
+        my @d = split /\s/, $data;
         foreach my $v (@d) {
             next if ( $v eq 'ee' );    # end of record byte
 
@@ -270,4 +276,23 @@ sub formatSeconds {
         sprintf( "%02d", $seconds )
     );
     return $hours . ':' . $minutes . ':' . $seconds;
+}
+
+sub crc_check {
+    my $packet = shift;
+    my @bytes  = unpack( "(A2)*", $packet );
+    my $EoP    = pop(@bytes);
+    my $cs     = pop(@bytes);
+
+    my $sum = 0;
+    foreach my $w (@bytes) {
+        $sum += hex($w);
+    }
+    my $fsum = ( $sum & 0xFFFF ) % 100;
+    if ( $cs == $fsum ) {
+        return (1);
+    }
+    else {
+        return (0);
+    }
 }
