@@ -279,16 +279,21 @@ sub formatSeconds {
 }
 
 sub crc_check {
+
+    # checksum is the last byte before the end-of-packet byte
+    # and is stored as BCD :/
+    # Checksum is the modulo 100 of the sum of all bytes in the
+    # packet up to the checksum byte (including the start-of-packet byte).
     my $packet = shift;
     my @bytes  = unpack( "(A2)*", $packet );
     my $EoP    = pop(@bytes);
     my $cs     = pop(@bytes);
 
     my $sum = 0;
-    foreach my $w (@bytes) {
-        $sum += hex($w);
+    foreach my $byte (@bytes) {
+        $sum += hex($byte);
     }
-    my $fsum = ( $sum & 0xFFFF ) % 100;
+    my $fsum = $sum % 100;
     if ( $cs == $fsum ) {
         return (1);
     }
